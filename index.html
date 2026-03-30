@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bike Dashboard</title>
-  <link rel="stylesheet" href="/styles.css">
 
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#000000">
+
+  <title>Bike OS Navigation</title>
+
+  <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 </head>
@@ -14,171 +17,176 @@
 <!-- START SCREEN -->
 <div class="start-screen" id="startScreen">
   <div class="glass start-card">
-    <svg width="60" height="60" viewBox="0 0 24 24" fill="none">
-      <circle cx="5" cy="17" r="3" stroke="white" stroke-width="1.5"/>
-      <circle cx="19" cy="17" r="3" stroke="white" stroke-width="1.5"/>
-      <path d="M5 17L10 10L14 17M10 10H14" stroke="white" stroke-width="1.5"/>
-    </svg>
     <h1>Hello, Emmett</h1>
-    <button onclick="startApp()">Start</button>
+    <button onclick="startApp()">Start Ride</button>
   </div>
 </div>
 
-<!-- MAIN APP -->
+<!-- APP -->
 <div class="app hidden" id="app">
 
-  <!-- SPEED -->
-  <div class="glass card">
-    <h1 class="speed" id="speed">0</h1>
-    <p class="label">MPH</p>
-  </div>
-
-  <!-- STATS -->
-  <div class="glass stats">
-    <div>
-      <p>Distance</p>
-      <h2 id="distance">0.00 mi</h2>
-    </div>
-    <div>
-      <p>Time</p>
-      <h2 id="time">00:00</h2>
-    </div>
-    <div>
-      <p>Avg</p>
-      <h2 id="avg">0.0</h2>
-    </div>
-  </div>
-
   <!-- MAP -->
-  <div id="map" class="glass map"></div>
+  <div id="map"></div>
 
-  <!-- START/STOP -->
-  <button class="ride-btn" onclick="toggleRide()" id="rideBtn">Start Ride</button>
+  <!-- OVERLAY UI -->
+  <div class="overlay">
+
+    <!-- SPEED -->
+    <div class="glass speed-card">
+      <h1 id="speed">0</h1>
+      <p>MPH</p>
+    </div>
+
+    <!-- STATS -->
+    <div class="glass stats">
+      <div>
+        <p>Distance</p>
+        <h2 id="distance">0.00</h2>
+      </div>
+      <div>
+        <p>Time</p>
+        <h2 id="time">00:00</h2>
+      </div>
+      <div>
+        <p>Avg</p>
+        <h2 id="avg">0.0</h2>
+      </div>
+    </div>
+
+    <!-- NAV INSTRUCTION -->
+    <div class="glass nav-card" id="navCard">
+      <p>Next: Turn right in 100 ft →</p>
+    </div>
+
+    <!-- BUTTON -->
+    <button class="ride-btn" onclick="toggleRide()" id="rideBtn">Start Ride</button>
+  </div>
 
 </div>
 
 <script>
+let map, marker, polyline;
 let speedEl = document.getElementById("speed");
 let distanceEl = document.getElementById("distance");
 let timeEl = document.getElementById("time");
 let avgEl = document.getElementById("avg");
+let navCard = document.getElementById("navCard");
 
-let map, marker, polyline;
 let rideActive = false;
+let totalDistance = 0;
+let lastPos = null;
+let path = [];
 
 let startTime, timer;
-let totalDistance = 0;
-let lastPosition = null;
-let path = [];
 
 // START APP
 function startApp() {
-  document.getElementById("startScreen").classList.add("fade-out");
-  setTimeout(() => {
-    document.getElementById("startScreen").style.display = "none";
-    document.getElementById("app").classList.remove("hidden");
-    initMap();
-  }, 500);
+  document.getElementById("startScreen").style.display = "none";
+  document.getElementById("app").classList.remove("hidden");
+  initMap();
 }
 
-// MAP
+// INIT MAP
 function initMap() {
-  map = L.map('map').setView([0,0], 15);
+  map = L.map('map', { zoomControl: false }).setView([0,0], 16);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', {
+    maxZoom: 20
+  }).addTo(map);
 
   marker = L.marker([0,0]).addTo(map);
-  polyline = L.polyline([], {color: 'white'}).addTo(map);
+
+  polyline = L.polyline([], { color: '#00ffff', weight: 5, opacity: 0.9 }).addTo(map);
 }
 
-// TRACKING
-if (navigator.geolocation) {
-  navigator.geolocation.watchPosition(position => {
-    let lat = position.coords.latitude;
-    let lng = position.coords.longitude;
-    let speed = position.coords.speed;
+// GPS TRACKING
+navigator.geolocation.watchPosition(pos => {
+  let lat = pos.coords.latitude;
+  let lng = pos.coords.longitude;
+  let speed = pos.coords.speed;
 
-    // speed display
-    if (speed !== null) {
-      let mph = speed * 2.237;
-      speedEl.textContent = mph.toFixed(1);
+  if (speed) speedEl.textContent = (speed*2.237).toFixed(1);
+
+  let current = [lat,lng];
+
+  if (map) {
+    marker.setLatLng(current);
+    map.panTo(current);
+  }
+
+  if (rideActive) {
+    path.push(current);
+    polyline.setLatLngs(path);
+
+    if (lastPos) {
+      totalDistance += getDistance(lastPos, current);
+      distanceEl.textContent = (totalDistance*0.000621371).toFixed(2);
     }
 
-    if (map) {
-      marker.setLatLng([lat, lng]);
-      map.setView([lat, lng]);
-    }
+    lastPos = current;
 
-    if (rideActive) {
-      let newPoint = [lat, lng];
-      path.push(newPoint);
-      polyline.setLatLngs(path);
+    // FAKE NAVIGATION UPDATE
+    updateNavigation();
+  }
+});
 
-      if (lastPosition) {
-        totalDistance += getDistance(lastPosition, newPoint);
-        distanceEl.textContent = (totalDistance * 0.000621371).toFixed(2) + " mi";
-      }
-
-      lastPosition = newPoint;
-    }
-  });
-}
-
-// DISTANCE CALC (meters)
-function getDistance(a, b) {
+// DISTANCE
+function getDistance(a,b) {
   let R = 6371000;
-  let dLat = (b[0]-a[0]) * Math.PI/180;
-  let dLon = (b[1]-a[1]) * Math.PI/180;
+  let dLat = (b[0]-a[0])*Math.PI/180;
+  let dLon = (b[1]-a[1])*Math.PI/180;
 
-  let lat1 = a[0] * Math.PI/180;
-  let lat2 = b[0] * Math.PI/180;
+  let lat1 = a[0]*Math.PI/180;
+  let lat2 = b[0]*Math.PI/180;
 
-  let x = Math.sin(dLat/2) * Math.sin(dLat/2) +
-          Math.sin(dLon/2) * Math.sin(dLon/2) *
-          Math.cos(lat1) * Math.cos(lat2);
-
-  let y = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
-  return R * y;
+  let x = Math.sin(dLat/2)**2 + Math.sin(dLon/2)**2 * Math.cos(lat1)*Math.cos(lat2);
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 }
 
-// START / STOP RIDE
+// START/STOP RIDE
 function toggleRide() {
   rideActive = !rideActive;
   let btn = document.getElementById("rideBtn");
 
   if (rideActive) {
     btn.textContent = "Stop Ride";
-
-    startTime = Date.now();
-    timer = setInterval(updateTime, 1000);
-
     totalDistance = 0;
     path = [];
     polyline.setLatLngs([]);
-    lastPosition = null;
-
+    lastPos = null;
+    startTime = Date.now();
+    timer = setInterval(updateTime,1000);
   } else {
     btn.textContent = "Start Ride";
     clearInterval(timer);
   }
 }
 
-// TIME + AVG SPEED
+// TIME + AVG
 function updateTime() {
   let elapsed = Math.floor((Date.now() - startTime)/1000);
+  let mins = Math.floor(elapsed/60);
+  let secs = elapsed%60;
+  timeEl.textContent = String(mins).padStart(2,'0')+":"+String(secs).padStart(2,'0');
+  let hours = elapsed/3600;
+  let miles = totalDistance*0.000621371;
+  if(hours>0) avgEl.textContent = (miles/hours).toFixed(1);
+}
 
-  let mins = Math.floor(elapsed / 60);
-  let secs = elapsed % 60;
+// FAKE NAVIGATION INSTRUCTIONS
+let directions = [
+  "Turn right in 100 ft →",
+  "Go straight 0.2 mi ↑",
+  "Turn left in 50 ft ←",
+  "Destination ahead 🏁"
+];
 
-  timeEl.textContent =
-    String(mins).padStart(2,'0') + ":" +
-    String(secs).padStart(2,'0');
-
-  let hours = elapsed / 3600;
-  let miles = totalDistance * 0.000621371;
-
-  if (hours > 0) {
-    avgEl.textContent = (miles / hours).toFixed(1);
+let navIndex = 0;
+function updateNavigation() {
+  // change instruction every 5 points for demo
+  if(path.length % 5 === 0){
+    navCard.innerHTML = "Next: " + directions[navIndex];
+    navIndex = (navIndex+1) % directions.length;
   }
 }
 </script>
